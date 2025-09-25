@@ -78,14 +78,22 @@ def play(args):
     policy = ppo_runner.get_inference_policy(device=env.device)
     actions = torch.zeros(env.num_envs, 12, device=env.device, requires_grad=False)
 
-    actions, mode= policy(obs.detach())
+    policy_output = policy(obs.detach())
+    if len(policy_output) == 2:
+        actions, mode = policy_output
+    else:
+        actions, mode, prob, _, _ = policy_output
     color_list = np.random.rand(mode.shape[0], 3)
 
     for i in range(10*int(env.max_episode_length)):
         env.commands[:, 0] = 1
         env.commands[::2, 2] = 0.6
         env.commands[1::2, 2] = -0.6
-        actions, mode, prob,_,_= policy(obs.detach())
+        policy_output = policy(obs.detach())
+        if len(policy_output) == 2:
+            actions, mode = policy_output
+        else:
+            actions, mode, prob, _, _ = policy_output
 
         env._draw_mode(mode[env.lookat_id, :], color_list)
         obs, _, _, _, _, _, _, _, _, _ = env.step(actions.detach())
