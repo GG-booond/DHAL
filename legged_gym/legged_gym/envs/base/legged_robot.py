@@ -1013,11 +1013,12 @@ class LeggedRobot(BaseTask):
 
         print("\n", feet_names, "\n")
 
-
-        for s in ["FR_foot", "FL_foot", "RR_foot", "RL_foot"]:
-            feet_idx = self.gym.find_asset_rigid_body_index(robot_asset, s)
-            sensor_pose = gymapi.Transform(gymapi.Vec3(0.0, 0.0, 0.0))
-            self.gym.create_asset_force_sensor(robot_asset, feet_idx, sensor_pose)
+        # Create force sensors for detected feet
+        for foot_name in feet_names:
+            feet_idx = self.gym.find_asset_rigid_body_index(robot_asset, foot_name)
+            if feet_idx != gymapi.INVALID_HANDLE:
+                sensor_pose = gymapi.Transform(gymapi.Vec3(0.0, 0.0, 0.0))
+                self.gym.create_asset_force_sensor(robot_asset, feet_idx, sensor_pose)
         
         penalized_contact_names = []
         for name in self.cfg.asset.penalize_contacts_on:

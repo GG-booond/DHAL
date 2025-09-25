@@ -31,6 +31,7 @@
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 from .base.legged_robot import LeggedRobot
 from .go1.go1_config import Go1Cfg, Go1CfgPPO
+from .t1.t1_config import T1Cfg, T1CfgPPO
 
 
 import os
@@ -38,3 +39,4 @@ import os
 from legged_gym.utils.task_registry import task_registry
 
 task_registry.register( "go1", LeggedRobot, Go1Cfg(), Go1CfgPPO() )
+task_registry.register( "t1", LeggedRobot, T1Cfg(), T1CfgPPO() )
