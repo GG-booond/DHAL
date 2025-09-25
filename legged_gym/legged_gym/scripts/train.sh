@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=1 nohup python train.py --exptid=dhal > train_dhal.log 2>&1 &
