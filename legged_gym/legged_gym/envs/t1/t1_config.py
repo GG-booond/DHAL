@@ -324,9 +324,9 @@ class T1Cfg(LeggedRobotCfg):
         # =========================== 接触和碰撞设置 ===========================
         foot_name = "Ankle_Cross"          # 脚部link名称 (用于识别脚部)
         # 接触惩罚 - 这些部位接触地面会被惩罚
-        penalize_contacts_on = ["Trunk", "H1", "H2", "AL1", "AL2", "AL3", "AR1", "AR2", "AR3"]
+        penalize_contacts_on = ["H1", "H2", "AL1", "AL2", "AL3", "AR1", "AR2", "AR3"]
         # 终止条件 - 这些部位接触地面会终止episode
-        terminate_after_contacts_on = ["Trunk"]
+        terminate_after_contacts_on = ["H1", "H2"]
         
         # =========================== T1关节名称定义 ===========================
         # 髋关节名称
@@ -401,7 +401,7 @@ class T1Cfg(LeggedRobotCfg):
     class init_state( LeggedRobotCfg.init_state ):
         """初始状态配置 - T1机器人在滑板上的初始姿态"""
         # =========================== 基座初始状态 ===========================
-        pos = [0.0, 0.0, 1.2]              # 初始位置 [x, y, z] (米) - T1比Go1高
+        pos = [0.0, 0.0, 0.95]              # 初始位置 [x, y, z] (米) - T1比Go1高
         rot = [0.0, 0.0, 0.0, 1.0]         # 初始旋转四元数 [x, y, z, w]
         lin_vel = [0.0, 0.0, 0.0]          # 初始线速度 [x, y, z] (m/s)
         ang_vel = [0.0, 0.0, 0.0]          # 初始角速度 [x, y, z] (rad/s)
@@ -414,13 +414,13 @@ class T1Cfg(LeggedRobotCfg):
             'Head_pitch': 0.0,             # 头部俯仰角
             
             # ===== 左臂关节 (4 DOF) =====
-            'Left_Shoulder_Pitch': 0.0,    # 左肩俯仰
+            'Left_Shoulder_Pitch': -1.57,    # 左肩俯仰
             'Left_Shoulder_Roll': 0.0,     # 左肩横滚 
             'Left_Elbow_Pitch': 0.0,       # 左肘俯仰
             'Left_Elbow_Yaw': 0.0,         # 左肘偏航
             
             # ===== 右臂关节 (4 DOF) =====
-            'Right_Shoulder_Pitch': 0.0,   # 右肩俯仰
+            'Right_Shoulder_Pitch': -1.57,   # 右肩俯仰
             'Right_Shoulder_Roll': 0.0,    # 右肩横滚
             'Right_Elbow_Pitch': 0.0,      # 右肘俯仰
             'Right_Elbow_Yaw': 0.0,        # 右肘偏航
@@ -429,18 +429,18 @@ class T1Cfg(LeggedRobotCfg):
             'Waist': 0.0,                  # 腰部扭转
             
             # ===== 左腿关节 (6 DOF) =====
-            'Left_Hip_Pitch': -0.3,        # 左髋俯仰 (轻微弯曲)
+            'Left_Hip_Pitch': -0.2,        # 左髋俯仰 (轻微弯曲)
             'Left_Hip_Roll': 0.0,          # 左髋横滚
             'Left_Hip_Yaw': 0.0,           # 左髋偏航
-            'Left_Knee_Pitch': 0.6,        # 左膝俯仰 (弯曲)
+            'Left_Knee_Pitch': 0.5,        # 左膝俯仰 (弯曲)
             'Left_Ankle_Pitch': -0.3,      # 左踝俯仰 (平衡膝盖弯曲)
             'Left_Ankle_Roll': 0.0,        # 左踝横滚
             
             # ===== 右腿关节 (6 DOF) =====
-            'Right_Hip_Pitch': -0.3,       # 右髋俯仰
+            'Right_Hip_Pitch': -0.2,       # 右髋俯仰
             'Right_Hip_Roll': 0.0,         # 右髋横滚
             'Right_Hip_Yaw': 0.0,          # 右髋偏航
-            'Right_Knee_Pitch': 0.6,       # 右膝俯仰
+            'Right_Knee_Pitch': 0.5,       # 右膝俯仰
             'Right_Ankle_Pitch': -0.3,     # 右踝俯仰
             'Right_Ankle_Roll': 0.0,       # 右踝横滚
 
@@ -482,28 +482,29 @@ class T1Cfg(LeggedRobotCfg):
         # 不同关节组的刚度系数 (P增益)
         stiffness = {
             'joint': 100.0,                # 通用关节刚度 (T1默认)
-            'Head': 20.0,                  # 头部关节 (较弱，避免过激运动)
-            'Shoulder': 80.0,              # 肩部关节  
-            'Elbow': 60.0,                 # 肘部关节
-            'Waist': 120.0,                # 腰部关节 (较强，维持躯干姿态)
-            'Hip': 150.0,                  # 髋部关节 (最强，支撑身体重量)
-            'Knee': 150.0,                 # 膝部关节
+            'Head': 100.0,                  # 头部关节 (较弱，避免过激运动)
+            'Shoulder': 100.0,              # 肩部关节  
+            'Elbow': 100.0,                 # 肘部关节
+            'Waist': 100.0,                # 腰部关节 (较强，维持躯干姿态)
+            'Hip': 100.0,                  # 髋部关节 (最强，支撑身体重量)
+            'Knee': 100.0,                 # 膝部关节
             'Ankle': 100.0,                # 踝部关节
             'skateboard': 0,               # 滑板关节 (被动)
             'truck': 10,                   # 滑板转向架 (轻微阻尼)
             'wheel': 0                     # 轮子 (自由旋转)
+            
         }
         
         # 阻尼系数 (D增益) - 通常根据stiffness自动设定
         damping = {
-            'joint': 3.0,                  # 通用关节阻尼
-            'Head': 1.0,                   # 头部关节阻尼
-            'Shoulder': 2.5,               # 肩部关节阻尼
+            'joint': 2.0,                  # 通用关节阻尼
+            'Head': 2.0,                   # 头部关节阻尼
+            'Shoulder': 2.0,               # 肩部关节阻尼
             'Elbow': 2.0,                  # 肘部关节阻尼
-            'Waist': 4.0,                  # 腰部关节阻尼
-            'Hip': 5.0,                    # 髋部关节阻尼
-            'Knee': 5.0,                   # 膝部关节阻尼
-            'Ankle': 3.0,                  # 踝部关节阻尼
+            'Waist': 2.0,                  # 腰部关节阻尼
+            'Hip': 2.0,                    # 髋部关节阻尼
+            'Knee': 2.0,                   # 膝部关节阻尼
+            'Ankle': 2.0,                  # 踝部关节阻尼
             'skateboard': 0,               # 滑板关节阻尼
             'truck': 0.5,                  # 滑板转向架阻尼
             'wheel': 0                     # 轮子阻尼
