@@ -39,7 +39,7 @@ import torch
 import wandb
 
 def train(args):
-    args.headless = True
+    args.headless = False
     # breakpoint()
     log_pth = LEGGED_GYM_ROOT_DIR + "/logs/{}/".format(args.proj_name) + args.exptid
     try:
