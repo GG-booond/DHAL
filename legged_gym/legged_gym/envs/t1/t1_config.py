@@ -62,22 +62,17 @@ class T1Cfg(LeggedRobotCfg):
                                            # - 69维: 关节状态 (23*3个关节位置 )
                                            # - 1维: 步态相位 (phase)
         
-        n_recon_num = 2 + 3 + 3 + 12 + 12 + 1  # 重构观测维度 (33维)
+        n_recon_num = 2 + 3 + 3 + 23 + 23 + 1  # 重构观测维度 (55维)
+                                            # 包含: IMU(2) + 角速度(3) + 重力(3) + 关节位置(23) + 关节速度(23) + 相位(1)
         history_len = 20                   # 历史观测长度 (20个时间步)
         
-        num_observations = history_len * n_proprio  # 总观测维度 = 20 × 58 = 1160维
+        num_observations = 1620  # 总观测维度 (实际测量值)
+                                               # 包含历史观测: 20 × 81 = 1620维
                                                # 这是策略网络的输入维度
         
-        num_privileged_obs = 1630          # 特权观测维度 (仅训练时可用):
+        num_privileged_obs = 2088          # 特权观测维度 (仅训练时可用):
+                                           # 实际测量的特权观测维度
                                            # 包含所有本体感受观测 + 环境真实状态信息
-                                           # - 基础观测 (58维)
-                                           # - 真实线速度 (3维) 
-                                           # - 质量和摩擦参数 (9维)
-                                           # - 电机强度参数 (2维)
-                                           # - 接触历史 (400维)
-                                           # - 地形高度 (187维)
-                                           # - 距离信息 (36维)
-                                           # - 滑板状态 (3维)
                                            # - 历史观测 (剩余维度)
         
         num_actions = 23                   # 动作维度 (T1的23个可控关节):
@@ -105,7 +100,7 @@ class T1Cfg(LeggedRobotCfg):
         next_goal_threshold = 0.2          # 下一个目标的阈值
         reach_goal_delay = 0.1             # 到达目标的延迟
         num_future_goal_obs = 2            # 未来目标观测数量
-        num_contact = 3                    # 接触相位数量
+        num_contact = 2                    # 接触相位数量 (T1机器人有2只脚)
 
     class normalization(LeggedRobotCfg.normalization):
         """
@@ -318,7 +313,7 @@ class T1Cfg(LeggedRobotCfg):
     class asset(LeggedRobotCfg.asset):
         """机器人资产配置 - T1人形机器人 + 滑板系统"""
         # =========================== 机器人模型文件 ===========================
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/T1_skate/urdf/T1_serial.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/T1_skate/urdf/T1_skate.urdf'
         name = "T1"
         
         # =========================== 接触和碰撞设置 ===========================
@@ -376,8 +371,9 @@ class T1Cfg(LeggedRobotCfg):
         wheel_link_names = ['front_left_wheel', 'front_right_wheel', 
                            'rear_left_wheel', 'rear_right_wheel']
         
-        # 脚部标记点 (用于接触检测)
-        marker_link_names = ["Ankle_Cross_Left", "Ankle_Cross_Right"]
+        # 脚部标记点 (用于接触检测) - T1滑板上的标记点
+        # T1是两足机器人，使用前两个标记点对应左右脚
+        marker_link_names = ["LF_f_marker", "RF_f_marker"]
 
         # =========================== 物理参数 ===========================
         wheel_radius = 0.030               # 滑板轮子半径 (米)
@@ -399,78 +395,81 @@ class T1Cfg(LeggedRobotCfg):
         flip_visual_attachments = True     # 是否翻转视觉附件
 
     class init_state( LeggedRobotCfg.init_state ):
-        """初始状态配置 - T1机器人在滑板上的初始姿态"""
+        """初始状态配置 - 自然站立姿态"""
         # =========================== 基座初始状态 ===========================
-        pos = [0.0, 0.0, 0.95]              # 初始位置 [x, y, z] (米) - T1比Go1高
-        rot = [0.0, 0.0, 0.0, 1.0]         # 初始旋转四元数 [x, y, z, w]
-        lin_vel = [0.0, 0.0, 0.0]          # 初始线速度 [x, y, z] (m/s)
-        ang_vel = [0.0, 0.0, 0.0]          # 初始角速度 [x, y, z] (rad/s)
+        pos = [0.0, 0.0, 0.8]               # 初始位置 - 调整高度适配自然站立姿态
+        rot = [0.0, 0.0, 0.0, 1.0]         # 初始旋转四元数
+        lin_vel = [0.0, 0.0, 0.0]          # 初始线速度
+        ang_vel = [0.0, 0.0, 0.0]          # 初始角速度
         
-        # =========================== T1关节默认角度 ===========================
-        # 23个T1关节 + 滑板相关关节的默认角度 (弧度)
+        # =========================== 自然站立关节角度 ===========================
+        # 参考标准人形机器人站立姿态，手臂稍微张开，腿部微弯保持平衡
         default_joint_angles = {
-            # ===== 头部关节 (2 DOF) =====
-            'AAHead_yaw': 0.0,             # 头部偏航角
-            'Head_pitch': 0.0,             # 头部俯仰角
+            # 头部 - 直视前方
+            'AAHead_yaw': 0.0,
+            'Head_pitch': 0.0,
             
-            # ===== 左臂关节 (4 DOF) =====
-            'Left_Shoulder_Pitch': -1.57,    # 左肩俯仰
-            'Left_Shoulder_Roll': 0.0,     # 左肩横滚 
-            'Left_Elbow_Pitch': 0.0,       # 左肘俯仰
-            'Left_Elbow_Yaw': 0.0,         # 左肘偏航
+            # 手臂 - 自然张开姿态，提高平衡性
+            'Left_Shoulder_Pitch': 0.25,      # 肩部稍微前倾
+            'Left_Shoulder_Roll': 0.0,       # 左臂向外张开
+            'Left_Elbow_Pitch': 0.0,          # 肘关节保持伸直
+            'Left_Elbow_Yaw': -0.5,           # 前臂稍微内旋
+            'Right_Shoulder_Pitch': 0.25,     # 肩部稍微前倾
+            'Right_Shoulder_Roll': 1.4,       # 右臂向外张开
+            'Right_Elbow_Pitch': 0.0,         # 肘关节保持伸直
+            'Right_Elbow_Yaw': 0.5,           # 前臂稍微外旋
             
-            # ===== 右臂关节 (4 DOF) =====
-            'Right_Shoulder_Pitch': -1.57,   # 右肩俯仰
-            'Right_Shoulder_Roll': 0.0,    # 右肩横滚
-            'Right_Elbow_Pitch': 0.0,      # 右肘俯仰
-            'Right_Elbow_Yaw': 0.0,        # 右肘偏航
+            # 腰部 - 直立
+            'Waist': 0.0,
             
-            # ===== 腰部关节 (1 DOF) =====
-            'Waist': 0.0,                  # 腰部扭转
+            # 腿部 - 微弯姿态，更稳定的站立
+            'Left_Hip_Pitch': -0.1,           # 髋部稍微后倾
+            'Left_Hip_Roll': 0.0,             # 髋部侧倾保持中性
+            'Left_Hip_Yaw': 0.0,              # 髋部旋转保持中性
+            'Left_Knee_Pitch': 0.8,           # 膝盖微弯，增加稳定性
+            'Left_Ankle_Pitch': -0.6,         # 踝关节稍微背屈，平衡膝盖弯曲
+            'Left_Ankle_Roll': 0.0,           # 踝关节侧倾保持中性
             
-            # ===== 左腿关节 (6 DOF) =====
-            'Left_Hip_Pitch': -0.2,        # 左髋俯仰 (轻微弯曲)
-            'Left_Hip_Roll': 0.0,          # 左髋横滚
-            'Left_Hip_Yaw': 0.0,           # 左髋偏航
-            'Left_Knee_Pitch': 0.5,        # 左膝俯仰 (弯曲)
-            'Left_Ankle_Pitch': -0.3,      # 左踝俯仰 (平衡膝盖弯曲)
-            'Left_Ankle_Roll': 0.0,        # 左踝横滚
-            
-            # ===== 右腿关节 (6 DOF) =====
-            'Right_Hip_Pitch': -0.2,       # 右髋俯仰
-            'Right_Hip_Roll': 0.0,         # 右髋横滚
-            'Right_Hip_Yaw': 0.0,          # 右髋偏航
-            'Right_Knee_Pitch': 0.5,       # 右膝俯仰
-            'Right_Ankle_Pitch': -0.3,     # 右踝俯仰
-            'Right_Ankle_Roll': 0.0,       # 右踝横滚
+            'Right_Hip_Pitch': -0.1,          # 髋部稍微后倾
+            'Right_Hip_Roll': 0.0,            # 髋部侧倾保持中性
+            'Right_Hip_Yaw': 0.0,             # 髋部旋转保持中性
+            'Right_Knee_Pitch': 0.0,          # 膝盖微弯，增加稳定性
+            'Right_Ankle_Pitch': 0.0,        # 踝关节稍微背屈，平衡膝盖弯曲
+            'Right_Ankle_Roll': 0.0,          # 踝关节侧倾保持中性
 
-            # ===== 滑板系统关节 (保持与Go1相同) =====
-            'skateboard_joint_x': 0,       # 滑板X轴位移
-            'skateboard_joint_y': 0.9,     # 滑板Y轴位移 (滑板在脚下)
-            'skateboard_joint_z': 0,       # 滑板Z轴位移
-            'front_truck_roll_joint': 0,   # 前轮架横滚
-            'rear_truck_roll_joint': 0,    # 后轮架横滚
-            'front_left_wheel_joint': 0,   # 前左轮旋转
-            'front_right_wheel_joint': 0,  # 前右轮旋转
-            'rear_left_wheel_joint': 0,    # 后左轮旋转
-            'rear_right_wheel_joint': 0    # 后右轮旋转
+            # 滑板系统 - 保持在合适位置
+            'skateboard_joint_x': 0,
+            'skateboard_joint_y': 0.0,        # 滑板高度调整
+            'skateboard_joint_z': 0,
+            
+            # 滑板配件 - 保持中性
+            'front_truck_roll_joint': 0,
+            'rear_truck_roll_joint': 0,
+            'front_left_wheel_joint': 0,
+            'front_right_wheel_joint': 0,
+            'rear_left_wheel_joint': 0,
+            'rear_right_wheel_joint': 0
         }
         
         # =========================== 滑行默认姿态 ===========================
-        # T1在滑板上滑行时的关节角度 (仅23个主要关节，按关节顺序)
+        # T1在滑板上滑行时的关节角度 (基于自然站立姿态调整)
         glide_default_pos = [
-            # Head (2)
+            # Head (2) - 保持直视前方
             0.0, 0.0,
-            # Left arm (4) 
-            0.0, 0.0, 0.0, 0.0,
-            # Right arm (4)
-            0.0, 0.0, 0.0, 0.0,
-            # Waist (1)
+            # Left arm (4) - 保持自然张开姿态，有助于平衡
+            0.25, 0.0, 0.0, -0.5,
+            # Right arm (4) - 保持自然张开姿态，有助于平衡
+            0.25, 0.0, 0.0, 0.5,
+            # Waist (1) - 直立
             0.0,
-            # Left leg (6) - 滑行姿态：微蹲姿势
-            -0.3, 0.0, 0.0, 0.6, -0.3, 0.0,
-            # Right leg (6)
-            -0.3, 0.0, 0.0, 0.6, -0.3, 0.0
+            # Left leg (6) - 滑行姿态：在站立基础上增加蹲姿幅度
+            -0.2, 0.0, 0.0, 0.4, -0.2, 0.0,
+            # Right leg (6) - 滑行姿态：在站立基础上增加蹲姿幅度
+            -0.2, 0.0, 0.0, 0.4, -0.2, 0.0,
+            # Skateboard system joints (9) - 调整滑板到合适高度
+            0, 0.05, 0, # skateboard_joint_x/y/z
+            0, 0,       # front/rear_truck_roll_joint
+            0, 0, 0, 0  # wheel joints
         ]
 
     class control(LeggedRobotCfg.control):
@@ -479,32 +478,29 @@ class T1Cfg(LeggedRobotCfg):
         control_type = 'P'                 # 控制类型: 'P'(位置), 'V'(速度), 'T'(力矩)
         
         # =========================== PD控制增益 ===========================
-        # 不同关节组的刚度系数 (P增益)
+        # 不同关节组的刚度系数 (P增益) - 降低增益提高稳定性
         stiffness = {
-            'joint': 100.0,                # 通用关节刚度 (T1默认)
-            'Head': 100.0,                  # 头部关节 (较弱，避免过激运动)
-            'Shoulder': 100.0,              # 肩部关节  
-            'Elbow': 100.0,                 # 肘部关节
-            'Waist': 100.0,                # 腰部关节 (较强，维持躯干姿态)
-            'Hip': 100.0,                  # 髋部关节 (最强，支撑身体重量)
-            'Knee': 100.0,                 # 膝部关节
-            'Ankle': 100.0,                # 踝部关节
+            'Head': 20.0,                  # 头部关节 (较弱，避免过激运动)
+            'Shoulder': 20.0,              # 肩部关节  
+            'Elbow': 20.0,                 # 肘部关节
+            'Waist': 200.0,                # 腰部关节 
+            'Hip': 200.0,                  # 髋部关节 
+            'Knee': 300.0,                 # 膝部关节
+            'Ankle': 50.0,                # 踝部关节
             'skateboard': 0,               # 滑板关节 (被动)
-            'truck': 10,                   # 滑板转向架 (轻微阻尼)
+            'truck': 0,                   # 滑板转向架 (轻微阻尼)
             'wheel': 0                     # 轮子 (自由旋转)
-            
         }
         
-        # 阻尼系数 (D增益) - 通常根据stiffness自动设定
+        # 阻尼系数 (D增益) - 降低阻尼
         damping = {
-            'joint': 2.0,                  # 通用关节阻尼
-            'Head': 2.0,                   # 头部关节阻尼
-            'Shoulder': 2.0,               # 肩部关节阻尼
-            'Elbow': 2.0,                  # 肘部关节阻尼
-            'Waist': 2.0,                  # 腰部关节阻尼
-            'Hip': 2.0,                    # 髋部关节阻尼
-            'Knee': 2.0,                   # 膝部关节阻尼
-            'Ankle': 2.0,                  # 踝部关节阻尼
+            'Head': 0.5,                   # 头部关节阻尼
+            'Shoulder': 0.5,               # 肩部关节阻尼
+            'Elbow': 0.5,                  # 肘部关节阻尼
+            'Waist': 0.5,                  # 腰部关节阻尼
+            'Hip': 5.0,                    # 髋部关节阻尼
+            'Knee': 8.0,                   # 膝部关节阻尼
+            'Ankle': 3.0,                  # 踝部关节阻尼
             'skateboard': 0,               # 滑板关节阻尼
             'truck': 0.5,                  # 滑板转向架阻尼
             'wheel': 0                     # 轮子阻尼
@@ -599,15 +595,15 @@ class T1Cfg(LeggedRobotCfg):
         up_axis = 1                        # 上轴方向 (1=Z轴向上)
 
         class physx:
-            """PhysX物理引擎参数"""
+            """PhysX物理引擎参数 - 调整为更宽松的设置提高稳定性"""
             num_threads = 10               # 线程数
             solver_type = 1                # 求解器类型
-            num_position_iterations = 4    # 位置迭代次数
-            num_velocity_iterations = 0    # 速度迭代次数
-            contact_offset = 0.01          # 接触偏移 (米)
+            num_position_iterations = 8    # 位置迭代次数 (增加)
+            num_velocity_iterations = 1    # 速度迭代次数 (增加)
+            contact_offset = 0.02          # 接触偏移 (增加)
             rest_offset = 0.0              # 静止偏移 (米)
-            bounce_threshold_velocity = 0.5 # 弹跳阈值速度 (m/s)
-            max_depenetration_velocity = 1.0 # 最大反渗透速度 (m/s)
+            bounce_threshold_velocity = 0.2 # 弹跳阈值速度 (降低)
+            max_depenetration_velocity = 10.0 # 最大反渗透速度 (增加)
             max_gpu_contact_pairs = 2**23  # GPU最大接触对数
             default_buffer_size_multiplier = 5 # 缓冲区大小乘数
             contact_collection = 2         # 接触收集模式
@@ -633,16 +629,69 @@ class T1CfgPPO(LeggedRobotCfgPPO):
     T1机器人PPO算法配置类
     定义强化学习算法的超参数和训练设置
     """
+    seed = 42                              # 随机种子 (-1为随机)
+    runner_class_name = 'OnPolicyRunner'   # 运行器类名
+    
+    class policy(LeggedRobotCfgPPO.policy):
+        """策略网络配置"""
+        continue_from_last_std = True      # 是否从上次标准差继续
+        scan_encoder_dims = [128, 64, 32]  # 扫描编码器维度
+        actor_hidden_dims = [512, 256, 128] # Actor网络隐藏层维度
+        critic_hidden_dims = [512, 256, 128] # Critic网络隐藏层维度
+        priv_encoder_dims = [256, 128]     # 私有信息编码器维度
+        dha_hidden_dims = [256, 64, 32]    # DHA隐藏层维度
+        num_modes = 3                      # 模式数量
+        tsdyn_hidden_dims = [256, 128, 64] # 时序动力学隐藏层维度
+        tsdyn_latent_dims = 20             # 时序动力学潜在维度
+        rnn_hidden_size = 512              # RNN隐藏层大小
+        rnn_num_layers = 1                 # RNN层数
     
     class algorithm(LeggedRobotCfgPPO.algorithm):
         """PPO算法参数"""
+        value_loss_coef = 1.0              # 价值损失系数
+        use_clipped_value_loss = True      # 使用裁剪价值损失
+        clip_param = 0.2                   # PPO裁剪参数
         entropy_coef = 0.01                # 熵系数 (探索性)
+        num_learning_epochs = 5            # 学习轮数
+        num_mini_batches = 4               # 小批次数量
+        learning_rate = 2.e-4              # 学习率
+        schedule = 'adaptive'              # 学习率调度策略
+        gamma = 0.99                       # 折扣因子
+        lam = 0.9                          # GAE lambda参数
+        desired_kl = 0.01                  # 期望KL散度
+        max_grad_norm = 1.                 # 最大梯度范数
+        glide_advantage_w = 0.35           # 滑行优势权重
+        push_advantage_w = 0.4             # 推进优势权重
+        sim2real_advantage_w = 0.25        # 仿真到现实优势权重
+    
+    class depth_encoder(LeggedRobotCfgPPO.depth_encoder):
+        """深度编码器配置"""
+        if_depth = False                   # 是否使用深度信息
+        depth_shape = T1Cfg.depth.resized if hasattr(T1Cfg, 'depth') else [64, 64]  # 深度图形状
+        buffer_len = T1Cfg.depth.buffer_len if hasattr(T1Cfg, 'depth') else 100     # 缓冲区长度
+        hidden_dims = 512                  # 隐藏层维度
+        learning_rate = 1.e-3              # 学习率
+        num_steps_per_env = 24             # 每环境步数
+    
+    class estimator(LeggedRobotCfgPPO.estimator):
+        """状态估计器配置"""
+        train_with_estimated_states = True # 使用估计状态训练
+        learning_rate = 1.e-4              # 学习率
+        hidden_dims = [128, 64]            # 隐藏层维度
+        priv_states_dim = T1Cfg.env.n_priv # 私有状态维度
+        num_prop = T1Cfg.env.n_proprio     # 本体感知维度
+        num_scan = T1Cfg.env.n_scan        # 扫描维度
         
     class runner(LeggedRobotCfgPPO.runner):
         """训练运行器参数"""  
-        run_name = ''                      # 运行名称
+        policy_class_name = 'ActorCriticMLP' # 策略类名
+        algorithm_class_name = 'PPO_HDS'   # 算法类名
+        num_steps_per_env = 24             # 每环境步数
+        max_iterations = 100000            # 最大训练迭代次数
+        save_interval = 300                # 模型保存间隔
         experiment_name = 't1'             # 实验名称
-        algorithm_class_name = 'PPO'       # 算法类名
-        policy_class_name = 'ActorCritic'  # 策略类名
-        max_iterations = 1500              # 最大训练迭代次数
-        save_interval = 50                 # 模型保存间隔
+        run_name = ''                      # 运行名称
+        resume = False                     # 是否恢复训练
+        load_run = -1                      # 加载运行ID
+        checkpoint = -1                    # 检查点
+        resume_path = None                 # 恢复路径

@@ -68,10 +68,10 @@ class OnPolicyRunner:
                                         self.env.num_actions, 
                                         num_proprio = self.env.cfg.env.n_proprio,
                                         num_recon = self.env.cfg.env.n_recon_num,
-                                        history_len = self.env.cfg.env.history_len, 
+                                        history_len = self.env.cfg.env.history_len,
+                                        num_contact = self.env.cfg.env.num_contact, 
                                         cfg = self.env.cfg,
                                           **self.policy_cfg).to(self.device)
-
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
         self.alg: PPO_HDS = alg_class(actor_critic, device=self.device, **self.alg_cfg)
         self.num_steps_per_env = self.cfg["num_steps_per_env"]

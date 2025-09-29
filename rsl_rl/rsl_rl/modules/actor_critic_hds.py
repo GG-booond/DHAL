@@ -43,6 +43,7 @@ class ActorCriticHDS(nn.Module):
                         num_proprio,
                         num_recon,
                         history_len, 
+                        num_contact,
                         num_modes = 3,
                         actor_hidden_dims=[256, 256, 256],
                         critic_hidden_dims=[256, 256, 256],
@@ -58,6 +59,7 @@ class ActorCriticHDS(nn.Module):
         self.num_proprio = num_proprio
         self.num_recon = num_recon
         self.history_len = history_len
+        self.num_contact = num_contact
 
         num_his_obs = num_actor_obs
         mlp_input_dim_a = tsdyn_latent_dims + self.num_proprio
@@ -147,7 +149,7 @@ class ActorCriticHDS(nn.Module):
         TsDyn_input_dim = num_his_obs
         TsDyn_output_dim = self.num_recon
         for i in range (num_modes):
-            self.TsDyn_modules.append(VAE(TsDyn_input_dim, TsDyn_output_dim, tsdyn_hidden_dims, tsdyn_latent_dims, self.history_len, kl_w=0.9, prior_mu=0))
+            self.TsDyn_modules.append(VAE(TsDyn_input_dim, TsDyn_output_dim, tsdyn_hidden_dims, tsdyn_latent_dims, self.history_len, kl_w=0.9, prior_mu=0, feet_contact_dim=self.num_contact))
 
 
         print(f"Actor MLP: {self.actor}")
@@ -188,7 +190,44 @@ class ActorCriticHDS(nn.Module):
         return self.distribution.entropy().sum(dim=-1)
 
     def update_distribution(self, observations):
-        assert not torch.isnan(observations).any(), "Observations contain NaN values!"
+        # 详细的NaN检查
+        nan_mask = torch.isnan(observations)
+        inf_mask = torch.isinf(observations)
+        
+        if nan_mask.any():
+            print(f"发现NaN值！")
+            print(f"观测张量形状: {observations.shape}")
+            print(f"NaN位置: {torch.where(nan_mask)}")
+            nan_indices = torch.where(nan_mask)
+            for i in range(len(nan_indices[0])):
+                batch_idx = nan_indices[0][i].item()
+                feature_idx = nan_indices[1][i].item() if len(nan_indices) > 1 else 0
+                print(f"NaN at batch {batch_idx}, feature {feature_idx}")
+            print(f"第一个batch的观测值:\n{observations[0]}")
+            raise AssertionError("Observations contain NaN values!")
+            
+        if inf_mask.any():
+            print(f"发现无穷大值！")
+            print(f"观测张量形状: {observations.shape}")
+            print(f"Inf位置: {torch.where(inf_mask)}")
+            inf_indices = torch.where(inf_mask)
+            for i in range(len(inf_indices[0])):
+                batch_idx = inf_indices[0][i].item()
+                feature_idx = inf_indices[1][i].item() if len(inf_indices) > 1 else 0
+                print(f"Inf at batch {batch_idx}, feature {feature_idx}: {observations[batch_idx, feature_idx]}")
+            raise AssertionError("Observations contain Inf values!")
+        
+        # 检查是否有异常大的值
+        max_val = torch.max(torch.abs(observations))
+        if max_val > 1e6:
+            print(f"警告：发现异常大的观测值: {max_val}")
+            large_mask = torch.abs(observations) > 1e6
+            large_indices = torch.where(large_mask)
+            for i in range(min(5, len(large_indices[0]))):  # 只显示前5个
+                batch_idx = large_indices[0][i].item()
+                feature_idx = large_indices[1][i].item() if len(large_indices) > 1 else 0
+                print(f"Large value at batch {batch_idx}, feature {feature_idx}: {observations[batch_idx, feature_idx]}")
+        
         # get one hot latent
         mode_latent, prob = self.DHA(observations)
         mode_latent = mode_latent.detach()
