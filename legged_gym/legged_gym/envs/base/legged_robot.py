@@ -48,6 +48,7 @@ from legged_gym.utils.terrain import Terrain
 from legged_gym.utils.terrain_parkour.terrain import Terrain_Parkour
 from legged_gym.utils.terrain_parkour import get_terrain_cls
 from legged_gym.utils.math import *
+from legged_gym.utils.log_config import debug, info, warning, error, critical
 from legged_gym.utils.helpers import class_to_dict
 from scipy.spatial.transform import Rotation as R
 from .legged_robot_config import LeggedRobotCfg
@@ -288,7 +289,7 @@ class LeggedRobot(BaseTask):
         self.feet_air_time[env_ids] = 0.
         self.reset_buf[env_ids] = 1
         self.obs_history_buf[env_ids, :, :] = 0.
-        self.contact_buf[env_ids, :, :] = 0.
+        # self.contact_buf[env_ids, :, :] = 0.  # 已简化，不再需要
         self.action_history_buf[env_ids, :, :] = 0.
         self.no_glide_time [env_ids] = 0
         self.no_push_time[env_ids] = 0
@@ -361,6 +362,7 @@ class LeggedRobot(BaseTask):
         imu_obs = torch.stack((self.roll, self.pitch,self.yaw), dim=1)
         phase = self._get_phase().view(self.num_envs,1)
         phase = (torch.norm(self.commands[:, :3],dim=1)>0.1).view(self.num_envs,1) * phase
+        # 81
         obs_buf =  torch.cat((      imu_obs[:,:2],
                                     self.base_ang_vel  * self.obs_scales.ang_vel,
                                     self.projected_gravity,
@@ -371,6 +373,15 @@ class LeggedRobot(BaseTask):
                                     phase
                                     ),dim=-1)
         
+        # Debug: 验证关节位置偏差（已优化，移除breakpoint）
+        # joint_pos_diff = self.dof_pos[0, self.actuated_dof_indices] - self.default_dof_pos[0, self.actuated_dof_indices]
+        # joint_obs = joint_pos_diff * self.obs_scales.dof_pos
+        # print(f"Current dof_pos (actuated): {self.dof_pos[0, self.actuated_dof_indices]}")
+        # print(f"Default dof_pos (actuated): {self.default_dof_pos[0, self.actuated_dof_indices]}")
+        # print(f"Joint position difference: {joint_pos_diff}")
+        # print(f"Joint observation (after scaling): {joint_obs}")
+        
+        # 58维当前观测缓冲区
         self.current_obs_buf =  torch.cat((
                                     imu_obs[:,:2],
                                     self.base_ang_vel * self.obs_scales.ang_vel,
@@ -398,70 +409,73 @@ class LeggedRobot(BaseTask):
                                         ),dim=-1)
 
 
+        # 完全移除高度测量 - 真实机器人无激光雷达，不再占用特权观测维度
         if self.cfg.terrain.measure_heights:
             heights = torch.clip(self.root_states[:, 2].unsqueeze(1) - 0.3 - self.measured_heights, -1, 1.)
+        else:
+            # 不再为禁用的高度测量分配维度，节省计算资源
+            heights = None
 
-        self.contact_buf = torch.where(
-            (self.episode_length_buf <= 1)[:, None, None], 
-            torch.stack([self.contact_filt.float()] * self.cfg.env.contact_buf_len, dim=1),
-            torch.cat([
-                self.contact_buf[:, 1:],
-                self.contact_filt.float().unsqueeze(1)
-            ], dim=1)
-        )          
-        contact_buf = self.contact_buf.view(self.num_envs, -1)
-
+        # 简化接触缓冲区 - 如果不需要接触历史信息，直接使用零张量
+        # self.contact_buf = torch.where(
+        #     (self.episode_length_buf <= 1)[:, None, None], 
+        #     torch.stack([self.contact_filt.float()] * self.cfg.env.contact_buf_len, dim=1),
+        #     torch.cat([
+        #         self.contact_buf[:, 1:],
+        #         self.contact_filt.float().unsqueeze(1)
+        #     ], dim=1)
+        # )          
+        # contact_buf = self.contact_buf.view(self.num_envs, -1)
+        
+        # 完全移除接触缓冲区 - 节省计算资源
+        # 原因：contact_buf 在当前配置下始终为0，完全移除以节省计算开销
         self.obs_buf = torch.cat([self.obs_history_buf.view(self.num_envs, -1), obs_buf_noised], dim=-1)
 
         # calculate distance
         # 添加索引和状态检查
-        print(f"feet_indices: {self.feet_indices}")
-        print(f"marker_link_indices: {self.marker_link_indices}")
-        print(f"rigid_body_states shape: {self.rigid_body_states.shape}")
+        debug(f"feet_indices: {self.feet_indices}")
+        debug(f"marker_link_indices: {self.marker_link_indices}")
+        debug(f"rigid_body_states shape: {self.rigid_body_states.shape}")
         
         # 检查rigid_body_states是否包含NaN
         if torch.isnan(self.rigid_body_states).any():
             nan_bodies = torch.isnan(self.rigid_body_states).any(dim=-1).any(dim=0)
             nan_indices = torch.where(nan_bodies)[0]
-            print(f"NaN detected in rigid_body_states at body indices: {nan_indices}")
+            error(f"NaN detected in rigid_body_states at body indices: {nan_indices}")
             
             # 检查feet_indices和marker_link_indices是否有效
             max_body_idx = self.rigid_body_states.shape[1] - 1
-            print(f"Max body index: {max_body_idx}")
-            print(f"feet_indices valid: {torch.all(self.feet_indices <= max_body_idx)}")
-            print(f"marker_link_indices valid: {torch.all(self.marker_link_indices <= max_body_idx)}")
+            debug(f"Max body index: {max_body_idx}")
+            debug(f"feet_indices valid: {torch.all(self.feet_indices <= max_body_idx)}")
+            debug(f"marker_link_indices valid: {torch.all(self.marker_link_indices <= max_body_idx)}")
             
             # 检查特定索引的值
             for idx in self.feet_indices:
-                print(f"Body {idx} state: {self.rigid_body_states[0, idx, :3]}")
+                debug(f"Body {idx} state: {self.rigid_body_states[0, idx, :3]}")
         
         feet_pos = self.rigid_body_states[:, self.feet_indices, :3]
-        print(f"feet_pos raw: {feet_pos}")
+        debug(f"feet_pos raw: {feet_pos}")
         
         # 修正：应该是修改z坐标，而不是第0个脚
-        feet_pos[:,:,2] = feet_pos[:,:,2] - 0.014
-        print(f"feet_pos after z offset: {feet_pos}")
+        feet_pos[:,:,2] = feet_pos[:,:,2] - 0.014 #TODO 这是个什么offset？
+        debug(f"feet_pos after z offset: {feet_pos}")
         
         skateb_contact_pos = self.rigid_body_states[:, self.marker_link_indices, :3]
-        print(f"skateb_contact_pos: {skateb_contact_pos}")
+        debug(f"skateb_contact_pos: {skateb_contact_pos}")
         
-        ground_contact_pos = self.rigid_body_states[:, self.feet_indices, :3] 
-        print(f"ground_contact_pos initial: {ground_contact_pos}") 
-        
-        # Set ground contact z-position to 0 for front feet (adapt to different robot morphologies)
-        num_feet = self.feet_indices.shape[0]
-        if num_feet >= 2:
-            ground_contact_pos[:, 0, -1] = 0  # First foot
-        if num_feet >= 4:
-            ground_contact_pos[:, 2, -1] = 0  # Third foot (Go1 front right) 
+        # 修正ground_contact_pos逻辑：应该表示地面参考点，而不是脚部位置
+        # 为每只脚创建对应的地面参考点（脚部的x,y坐标，但z=0表示地面高度）
+        ground_contact_pos = feet_pos.clone()  # 复制脚部的x,y坐标
+        ground_contact_pos[:, :, 2] = 0.0  # 所有脚的地面参考点z坐标都设为0（地面高度）
+        debug(f"ground_contact_pos (ground reference): {ground_contact_pos}") 
 
         # 添加NaN检查
         if torch.isnan(feet_pos).any():
-            print("NaN detected in feet_pos!")
+            error("NaN detected in feet_pos!")
         if torch.isnan(skateb_contact_pos).any():
-            print("NaN detected in skateb_contact_pos!")
+            error("NaN detected in skateb_contact_pos!")
         if torch.isnan(ground_contact_pos).any():
-            print("NaN detected in ground_contact_pos!")
+            error("NaN detected in ground_contact_pos!")
 
         dis_feet_skateb = (skateb_contact_pos - feet_pos).view(self.num_envs, -1)
         dis_feet_ground = (ground_contact_pos - feet_pos).view(self.num_envs, -1)
@@ -470,33 +484,106 @@ class LeggedRobot(BaseTask):
 
         # 检查距离计算结果
         if torch.isnan(dis_feet_skateb).any():
-            print("NaN detected in dis_feet_skateb!")
-            print(f"skateb_contact_pos shape: {skateb_contact_pos.shape}")
-            print(f"feet_pos shape: {feet_pos.shape}")
+            error("NaN detected in dis_feet_skateb!")
+            debug(f"skateb_contact_pos shape: {skateb_contact_pos.shape}")
+            debug(f"feet_pos shape: {feet_pos.shape}")
         if torch.isnan(dis_feet_ground).any():
-            print("NaN detected in dis_feet_ground!")
+            error("NaN detected in dis_feet_ground!")
         if torch.isnan(dis_body_skateb).any():
-            print("NaN detected in dis_body_skateb!")
+            error("NaN detected in dis_body_skateb!")
         if torch.isnan(dis_bofy_feet).any():
-            print("NaN detected in dis_bofy_feet!")
+            error("NaN detected in dis_bofy_feet!")
 
-        self.privileged_obs_buf = torch.cat([obs_buf,  
-                                            self.base_lin_vel * self.obs_scales.lin_vel, 
-                                            self.mass_params_tensor,
-                                            self.friction_coeffs_tensor,
-                                            self.motor_strength[0] - 1, 
-                                            self.motor_strength[1] - 1,
-                                            contact_buf,
-                                            heights, 
-                                            dis_feet_skateb * 0.1,
-                                            dis_feet_ground * 0.1,
-                                            dis_body_skateb * 0.1,
-                                            dis_bofy_feet * 0.1,
-                                            self.skate_roll.clone().view(self.num_envs, -1), 
-                                            self.skate_pitch.clone().view(self.num_envs, -1), 
-                                            self.skate_yaw.clone().view(self.num_envs, -1),
-
-                                            self.obs_history_buf.view(self.num_envs, -1)], dim=-1)
+        # 优化后的特权观察值 - 移除contact_buf以节省计算资源
+        # 详细维度分析和调试
+        debug("=" * 80)
+        debug("特权观测各组件维度分析:")
+        debug("=" * 80)
+        
+        components = []
+        component_names = []
+        
+        # 1. 基础观测 obs_buf
+        components.append(obs_buf)
+        component_names.append("obs_buf (基础观测)")
+        debug(f"obs_buf: {obs_buf.shape}")
+        
+        # 2. 基础线性速度
+        base_lin_vel_scaled = self.base_lin_vel * self.obs_scales.lin_vel
+        components.append(base_lin_vel_scaled)
+        component_names.append("base_lin_vel (基础线性速度)")
+        debug(f"base_lin_vel: {base_lin_vel_scaled.shape}")
+        
+        # 3. 质量参数
+        components.append(self.mass_params_tensor)
+        component_names.append("mass_params_tensor (质量参数)")
+        debug(f"mass_params_tensor: {self.mass_params_tensor.shape}")
+        
+        # 4. 摩擦系数
+        components.append(self.friction_coeffs_tensor)
+        component_names.append("friction_coeffs_tensor (摩擦系数)")
+        debug(f"friction_coeffs_tensor: {self.friction_coeffs_tensor.shape}")
+        
+        # 5-6. 电机强度
+        motor_strength_0 = self.motor_strength[0] - 1
+        motor_strength_1 = self.motor_strength[1] - 1
+        components.extend([motor_strength_0, motor_strength_1])
+        component_names.extend(["motor_strength[0] (电机强度P)", "motor_strength[1] (电机强度D)"])
+        debug(f"motor_strength[0]: {motor_strength_0.shape}")
+        debug(f"motor_strength[1]: {motor_strength_1.shape}")
+        
+        # 7. 高度测量（仅当启用时添加）
+        if heights is not None:
+            components.append(heights)
+            component_names.append("heights (高度测量)")
+            debug(f"heights: {heights.shape}")
+        else:
+            debug("heights: 已禁用，节省187维度")
+        
+        # 8-11. 距离测量
+        dis_components = [
+            dis_feet_skateb * 0.1,
+            dis_feet_ground * 0.1, 
+            dis_body_skateb * 0.1,
+            dis_bofy_feet * 0.1
+        ]
+        dis_names = ["dis_feet_skateb", "dis_feet_ground", "dis_body_skateb", "dis_bofy_feet"]
+        components.extend(dis_components)
+        component_names.extend(dis_names)
+        for i, (dis_comp, dis_name) in enumerate(zip(dis_components, dis_names)):
+            debug(f"{dis_name}: {dis_comp.shape}")
+        
+        # 12-14. 滑板姿态
+        skate_angles = [
+            self.skate_roll.clone().view(self.num_envs, -1),
+            self.skate_pitch.clone().view(self.num_envs, -1),
+            self.skate_yaw.clone().view(self.num_envs, -1)
+        ]
+        skate_names = ["skate_roll", "skate_pitch", "skate_yaw"]
+        components.extend(skate_angles)
+        component_names.extend(skate_names)
+        for angle_comp, angle_name in zip(skate_angles, skate_names):
+            debug(f"{angle_name}: {angle_comp.shape}")
+        
+        # 15. 历史观测缓冲区
+        obs_history_flattened = self.obs_history_buf.view(self.num_envs, -1)
+        components.append(obs_history_flattened)
+        component_names.append("obs_history_buf (历史观测)")
+        debug(f"obs_history_buf: {obs_history_flattened.shape}")
+        
+        # 计算总维度
+        total_dims = sum([comp.shape[-1] for comp in components])
+        debug("=" * 80)
+        debug(f"各组件维度汇总:")
+        for i, (comp, name) in enumerate(zip(components, component_names)):
+            debug(f"  {i+1:2d}. {name:25s}: {comp.shape[-1]:4d}维")
+        debug("=" * 80)
+        debug(f"实际总维度: {total_dims}")
+        debug(f"配置总维度: {self.cfg.env.num_privileged_obs}")
+        debug(f"维度匹配: {'✅ 匹配' if total_dims == self.cfg.env.num_privileged_obs else '❌ 不匹配'}")
+        debug("=" * 80)
+        
+        self.privileged_obs_buf = torch.cat(components, dim=-1)
 
 
         self.obs_history_buf = torch.where(
@@ -520,8 +607,8 @@ class LeggedRobot(BaseTask):
         self.sim = self.gym.create_sim(self.sim_device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
         mesh_type = self.cfg.terrain.mesh_type
         start = time()
-        print("*"*80)
-        print("Start creating ground...")
+        debug("*"*80)
+        info("Start creating ground...")
         if mesh_type in ['heightfield', 'trimesh']:
             self.terrain = Terrain(self.cfg.terrain, self.num_envs)
         if mesh_type=='plane':
@@ -531,13 +618,13 @@ class LeggedRobot(BaseTask):
         elif mesh_type=='trimesh':
             self._create_trimesh()
         elif mesh_type=='parkour':
-            print("load parkour terrain")
+            info("load parkour terrain")
             self._create_terrain()
         elif mesh_type is not None:
             raise ValueError("Terrain mesh type not recognised. Allowed types are [None, plane, heightfield, trimesh]")
         
-        print("Finished creating ground. Time taken {:.2f} s".format(time() - start))
-        print("*"*80)
+        info("Finished creating ground. Time taken {:.2f} s".format(time() - start))
+        debug("*"*80)
         self._create_envs()
 
     def set_camera(self, position, lookat):
@@ -751,8 +838,9 @@ class LeggedRobot(BaseTask):
         Args:
             env_ids (List[int]): Environemnt ids
         """
+        # 所有环境统一使用相同的默认姿态，避免观察值计算时的参考不匹配问题
         self.dof_pos[env_ids] = self.default_dof_pos
-        self.dof_pos[env_ids[0::2]] = self.glide_default_dof_pos
+        # 移除原来的奇偶环境不同姿态设置：self.dof_pos[env_ids[0::2]] = self.glide_default_dof_pos
         self.dof_vel[env_ids] = 0.
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -907,7 +995,7 @@ class LeggedRobot(BaseTask):
         self.action_history_buf = torch.zeros(self.num_envs, self.cfg.domain_rand.action_buf_len, self.num_actions, device=self.device, dtype=torch.float)
         # Use actual number of feet instead of hardcoded 4
         num_feet = self.feet_indices.shape[0]
-        self.contact_buf = torch.zeros(self.num_envs, self.cfg.env.contact_buf_len, num_feet, device=self.device, dtype=torch.float)
+        # self.contact_buf = torch.zeros(self.num_envs, self.cfg.env.contact_buf_len, num_feet, device=self.device, dtype=torch.float)  # 已简化，不再需要预先分配
 
         self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
         self.contact_phase = torch.zeros(self.num_envs, self.cfg.contact_phase.num_contact_phase, dtype=torch.float, device=self.device, requires_grad=False)
@@ -927,13 +1015,16 @@ class LeggedRobot(BaseTask):
 
         # joint positions offsets and PD gains
         self.default_dof_pos = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
-        self.glide_default_dof_pos = torch.tensor(self.cfg.init_state.glide_default_pos, dtype=torch.float, device=self.device, requires_grad=False)
+        # self.glide_default_dof_pos = torch.tensor(self.cfg.init_state.glide_default_pos, dtype=torch.float, device=self.device, requires_grad=False)
         self.default_dof_pos_all = torch.zeros(self.num_envs, self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
+        debug("=" * 60)
+        info("DOF Names and Default Poses:")
+        debug("=" * 60)
         for i in range(self.num_dofs):
             name = self.dof_names[i]
-            print(name)
             angle = self.cfg.init_state.default_joint_angles[name]
             self.default_dof_pos[i] = angle
+            debug(f"DOF {i:2d}: {name:25s} -> Default Pose: {angle:8.4f} rad ({angle * 180 / 3.14159:8.2f}°)")
             found = False
             for dof_name in self.cfg.control.stiffness.keys():
                 if dof_name in name:
@@ -944,8 +1035,14 @@ class LeggedRobot(BaseTask):
                 self.p_gains[i] = 0.
                 self.d_gains[i] = 0.
                 if self.cfg.control.control_type in ["P", "V"]:
-                    print(f"PD gain of joint {name} were not defined, setting them to zero")
-        breakpoint()
+                    warning(f"PD gain of joint {name} were not defined, setting them to zero")
+        
+        debug("=" * 60)
+        info(f"Total DOFs: {self.num_dofs}")
+        debug(f"Actuated DOFs: {len(self.actuated_dof_indices) if hasattr(self, 'actuated_dof_indices') else 'Not set yet'}")
+        # debug(f"Glide Default Pose: {self.glide_default_dof_pos.cpu().numpy() if hasattr(self, 'glide_default_dof_pos') else 'Not set'}")
+        debug("=" * 60)
+
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
         self.default_dof_pos_all[:] = self.default_dof_pos[0]
 
@@ -1038,9 +1135,9 @@ class LeggedRobot(BaseTask):
         tm_params.static_friction = self.cfg.terrain.static_friction
         tm_params.dynamic_friction = self.cfg.terrain.dynamic_friction
         tm_params.restitution = self.cfg.terrain.restitution
-        print("Adding trimesh to simulation...")
+        info("Adding trimesh to simulation...")
         self.gym.add_triangle_mesh(self.sim, self.terrain.vertices.flatten(order='C'), self.terrain.triangles.flatten(order='C'), tm_params)  
-        print("Trimesh added")
+        info("Trimesh added")
         self.height_samples = torch.tensor(self.terrain.heightsamples).view(self.terrain.tot_rows, self.terrain.tot_cols).to(self.device)
         self.x_edge_mask = torch.tensor(self.terrain.x_edge_mask).view(self.terrain.tot_rows, self.terrain.tot_cols).to(self.device)
 
@@ -1098,7 +1195,28 @@ class LeggedRobot(BaseTask):
         self.num_dofs = len(self.dof_names)
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s]
 
-        print("\n", feet_names, "\n")
+        # 输出完整的刚体序列
+        debug("=" * 80)
+        info("所有刚体序列 (完整列表):")
+        debug("=" * 80)
+        for i, body_name in enumerate(body_names):
+            marker = ""
+            if body_name in feet_names:
+                marker += " [FOOT]"
+            if hasattr(self.cfg.asset, 'marker_link_names') and body_name in self.cfg.asset.marker_link_names:
+                marker += " [MARKER]"
+            if hasattr(self.cfg.asset, 'wheel_link_names') and body_name in self.cfg.asset.wheel_link_names:
+                marker += " [WHEEL]"
+            if hasattr(self.cfg.asset, 'skateboard_link_name') and body_name in self.cfg.asset.skateboard_link_name:
+                marker += " [SKATEBOARD]"
+            debug(f"  [{i:2d}] {body_name}{marker}")
+        
+        debug("=" * 80)
+        info(f"总刚体数量: {len(body_names)}")
+        debug(f"脚部刚体: {feet_names}")
+        if hasattr(self.cfg.asset, 'marker_link_names'):
+            debug(f"标记点刚体: {self.cfg.asset.marker_link_names}")
+        debug("=" * 80)
 
         # Create force sensors for detected feet
         for foot_name in feet_names:
@@ -1169,7 +1287,7 @@ class LeggedRobot(BaseTask):
         self.cam_tensors = []
         self.mass_params_tensor = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False)
         
-        print("Creating env...")
+        info("Creating env...")
         for i in tqdm(range(self.num_envs)):
             # create env instance
             env_handle = self.gym.create_env(self.sim, env_lower, env_upper, int(np.sqrt(self.num_envs)))
@@ -1249,13 +1367,13 @@ class LeggedRobot(BaseTask):
         for i, name in enumerate(marker_link_names):
             handle = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], marker_link_names[i])
             if handle == -1:
-                print(f"Warning: Marker link '{marker_link_names[i]}' not found in robot URDF!")
-                print("Available rigid body names:")
+                error(f"Warning: Marker link '{marker_link_names[i]}' not found in robot URDF!")
+                error("Available rigid body names:")
                 actor_handle = self.actor_handles[0]
                 num_bodies = self.gym.get_actor_rigid_body_count(self.envs[0], actor_handle)
                 for j in range(num_bodies):
                     body_name = self.gym.get_actor_rigid_body_name(self.envs[0], actor_handle, j)
-                    print(f"  {j}: {body_name}")
+                    error(f"  {j}: {body_name}")
                 raise RuntimeError(f"Marker link '{marker_link_names[i]}' not found!")
             self.marker_link_indices[i] = handle
     
@@ -1502,64 +1620,68 @@ class LeggedRobot(BaseTask):
 
     ##################  rewards ##################
 
-    def _reward_tracking_goal_vel(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
-        norm = torch.norm(self.target_pos_rel, dim=-1, keepdim=True)
-        target_vec_norm = self.target_pos_rel / (norm + 1e-5)
-        cur_vel = self.root_states[:, 7:9]
-        rew = torch.minimum(torch.sum(target_vec_norm * cur_vel, dim=-1), self.commands[:, 0]) / (self.commands[:, 0] + 1e-5)
-        return rew
+    # def _reward_tracking_goal_vel(self):
+    #     norm = torch.norm(self.target_pos_rel, dim=-1, keepdim=True)
+    #     target_vec_norm = self.target_pos_rel / (norm + 1e-5)
+    #     cur_vel = self.root_states[:, 7:9]
+    #     rew = torch.minimum(torch.sum(target_vec_norm * cur_vel, dim=-1), self.commands[:, 0]) / (self.commands[:, 0] + 1e-5)
+    #     return rew
 
     def _reward_push_tracking_lin_vel(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
-        contact_coefs = self.contact_phase.clone()
+        # T1滑板: 蹬地时线速度跟踪 (移除contact_phase切换)
         lin_vel_error = torch.abs(self.commands[:, :2] - self.base_lin_vel[:, :2])
         lin_vel_error = torch.clip(lin_vel_error, 0.2, 1)
         lin_vel_error = torch.sum(torch.square(lin_vel_error), dim=1)
-        return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma) * contact_coefs[:,1]
-
-    def _reward_tracking_world_lin_vel(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
-        cur_vel = self.base_lin_vel[:, 0] * torch.cos(self.commands[:, 3]-self.yaw)
-        lin_vel_error = torch.square(self.commands[:, 0] - cur_vel)
         return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma)
 
+    def _reward_tracking_lin_vel(self):
+        # T1: 统一线速度跟踪奖励 (移除滑行/蹬地切换机制)
+        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+        return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma)
+        
+    # def _reward_tracking_world_lin_vel(self):
+    #     cur_vel = self.base_lin_vel[:, 0] * torch.cos(self.commands[:, 3]-self.yaw)
+    #     lin_vel_error = torch.square(self.commands[:, 0] - cur_vel)
+    #     return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma)
+
+    def _reward_tracking_ang_vel(self):
+        # T1: 统一角速度跟踪奖励 (移除滑行/蹬地切换机制)  
+        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
+        return torch.exp(-ang_vel_error / self.cfg.rewards.tracking_sigma_yaw)
+        
     def _reward_tracking_yaw(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
         rew = torch.exp(-torch.abs(self.commands[:, 3] - self.yaw))
         return rew
     
     def _reward_push_tracking_ang_vel(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
-        contact_coefs = self.contact_phase.clone()
+        # T1滑板: 蹬地时角速度跟踪 (移除contact_phase切换)
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
-        return torch.exp(-ang_vel_error / self.cfg.rewards.tracking_sigma_yaw) * contact_coefs[:,1]
+        return torch.exp(-ang_vel_error / self.cfg.rewards.tracking_sigma_yaw)
 
 
     def _reward_reg_lin_vel_z(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        # T1: 惩罚Z轴线速度以避免跳跃
         error = torch.clip(self.base_lin_vel[:, 2], -1.5, 1.5)
         rew = torch.square(error)
         return rew
     
     def _reward_reg_ang_vel_xy(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        # T1: 惩罚XY轴角速度以保持姿态稳定
         error = torch.clip(self.base_ang_vel[:, :2], -1, 1)
         return torch.sum(torch.square(error), dim=1)
      
     def _reward_reg_orientation(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        # T1: 惩罚姿态偏离以避免倾倒
         rew = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1)
         return rew
     
     def _reward_push_orientation(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
-        contact_coefs = self.contact_phase.clone()
+        # T1滑板: 蹬地时姿态稳定性惩罚 (移除contact_phase切换)
         rew = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1)
-        return rew * contact_coefs[:,1]
+        return rew
 
     def _reward_reg_dof_acc(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        # T1滑板: 关节加速度惩罚 (平滑运动)
         error = self.last_dof_vel[:,self.actuated_dof_indices] - self.dof_vel[:,self.actuated_dof_indices]
         error = torch.clip(error, -10,10)
         return torch.sum(torch.square(error / self.dt), dim=1)
@@ -1569,7 +1691,7 @@ class LeggedRobot(BaseTask):
         return torch.sum(1.*(torch.norm(self.contact_forces[:, self.penalised_contact_indices, :], dim=-1) > 0.1), dim=1)
 
     def _reward_reg_action_rate(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        # T1滑板: 动作变化率惩罚 (减少抖动)
         return torch.norm(self.last_actions - self.actions,dim=1)
 
     
@@ -1590,23 +1712,22 @@ class LeggedRobot(BaseTask):
         return torch.sum(torch.square(self.dof_pos[:, self.hip_indices] - self.default_dof_pos[:, self.hip_indices]), dim=1)
     
     def _reward_skateboard_pos(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        # T1滑板: 滑板姿态控制奖励
         return torch.sum(torch.square(self.dof_pos[:, self.skateboard_dof_indices]- self.default_dof_pos[:, self.skateboard_dof_indices]), dim=1)
 
     def _reward_dof_error(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
         dof_error = torch.sum(torch.square(self.dof_pos[:, self.actuated_dof_indices] - 
                                            self.default_dof_pos[:, self.actuated_dof_indices]), dim=1)
         return dof_error
     
     def _reward_reg_wheel_contact_number(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        # T1滑板: 轮子接触地面奖励 (如果T1有4个轮子)
         wheel_contact_number = torch.sum(self.wheel_contact_filt, dim=1)
         reward = wheel_contact_number == 4
         return reward
     
     def _reward_wheel_speed(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        # T1滑板: 轮速奖励 (鼓励滑板移动)
         wheel_speed = torch.abs(torch.sum(self.dof_vel[:,self.wheel_dof_indices], dim=1))
         return wheel_speed
     
@@ -1829,18 +1950,16 @@ class LeggedRobot(BaseTask):
         return reward
     
     def _reward_push_joint_pos(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
-        contact_coefs = self.contact_phase.clone()
+        # T1滑板: 蹬地时关节位置奖励 (移除contact_phase切换)
         dof_error = torch.sum(torch.square(self.dof_pos[:, self.actuated_dof_indices] 
                                         - self.default_dof_pos[:, self.actuated_dof_indices]), dim=1)
-        return torch.exp(-dof_error) * contact_coefs[:,1]
+        return torch.exp(-dof_error)
 
     def _reward_push_hip_pos(self):
-        return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
-        contact_coefs = self.contact_phase.clone()
+        # T1滑板: 蹬地时髋部位置奖励 (移除contact_phase切换)
         hip_error = torch.sum(torch.square(self.dof_pos[:, self.hip_indices] 
                         - self.default_dof_pos[:, self.hip_indices]), dim=1)
-        return torch.exp(-hip_error)* contact_coefs[:,1]
+        return torch.exp(-hip_error)
 
     def _reward_glide_joint_pos(self):
         return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)

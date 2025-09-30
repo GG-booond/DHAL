@@ -30,6 +30,7 @@
 
 import time
 import os
+import logging
 from collections import deque
 import statistics
 
@@ -41,6 +42,19 @@ import wandb
 from rsl_rl.algorithms import PPO_HDS
 from rsl_rl.modules import *
 from rsl_rl.env import VecEnv
+
+# 设置日志
+logger = logging.getLogger(__name__)
+LOG_LEVELS = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL
+}
+log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
+log_level = LOG_LEVELS.get(log_level_str, logging.INFO)
+logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
 class OnPolicyRunner:
@@ -62,7 +76,7 @@ class OnPolicyRunner:
         else:
             num_critic_obs = self.env.num_obs
 
-        print("Using MLP and Priviliged Env encoder ActorCritic structure")
+        logger.info("Using MLP and Priviliged Env encoder ActorCritic structure")
         actor_critic: ActorCriticHDS = ActorCriticHDS(self.env.num_obs, 
                                         num_critic_obs, 
                                         self.env.num_actions, 
@@ -277,7 +291,7 @@ class OnPolicyRunner:
             f"""{'ETA:':>{pad}} {self.tot_time / (locs['it'] + 1) * (
                                locs['num_learning_iterations'] - locs['it']):.1f}s\n"""
         )
-        print(log_string)
+        logger.info(log_string)
 
     def save(self, path, infos=None, it = 0):
         state_dict = {
@@ -289,14 +303,14 @@ class OnPolicyRunner:
         torch.save(state_dict, path)
 
     def load(self, path, load_optimizer=True):
-        print("*" * 80)
-        print("Loading model from {}...".format(path))
+        logger.debug("*" * 80)
+        logger.info("Loading model from {}...".format(path))
         loaded_dict = torch.load(path, map_location=self.device)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         if load_optimizer:
             self.alg.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
         self.current_learning_iteration = loaded_dict['iter']
-        print("*" * 80)
+        logger.debug("*" * 80)
         return loaded_dict['infos']
     
     def get_inference_policy(self, device=None):

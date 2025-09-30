@@ -31,6 +31,7 @@
 from .helpers import class_to_dict, get_load_path, get_args, export_policy_as_jit, set_seed, update_class_from_dict
 from .task_registry import task_registry
 from .logger import Logger
+from .log_config import setup_logger, logger, debug, info, warning, error, critical, is_debug_mode
 from .math import *
 from .terrain import Terrain
 from .terrain_parkour.terrain import Terrain_Parkour

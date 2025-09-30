@@ -66,14 +66,20 @@ class T1Cfg(LeggedRobotCfg):
                                             # 包含: IMU(2) + 角速度(3) + 重力(3) + 关节位置(23) + 关节速度(23) + 相位(1)
         history_len = 20                   # 历史观测长度 (20个时间步)
         
-        num_observations = 1620  # 总观测维度 (实际测量值)
+        num_observations = history_len * n_proprio  # 总观测维度 (实际测量值)
                                                # 包含历史观测: 20 × 81 = 1620维
                                                # 这是策略网络的输入维度
         
-        num_privileged_obs = 2088          # 特权观测维度 (仅训练时可用):
-                                           # 实际测量的特权观测维度
-                                           # 包含所有本体感受观测 + 环境真实状态信息
-                                           # - 历史观测 (剩余维度)
+        num_privileged_obs = 1701          # 特权观测维度 (仅训练时可用) - 已移除contact_buf(200维) + heights(187维):
+                                           # 优化后的特权观测构成:
+                                           # - 基础观测 (obs_buf): 1620维 (历史观测1539 + 当前观测81)
+                                           # - 基础线性速度: 3维  
+                                           # - 质量参数: 4维
+                                           # - 摩擦系数: 1维
+                                           # - 电机强度: 46维 (23*2)
+                                           # - 各种距离测量: 24维 (6*4)
+                                           # - 滑板姿态: 3维
+                                           # 注: 已移除contact_buf(200维) + heights(187维)以节省计算资源和适配真实机器人
         
         num_actions = 23                   # 动作维度 (T1的23个可控关节):
                                            # 头部(2) + 左臂(4) + 右臂(4) + 腰部(1) + 左腿(6) + 右腿(6)
@@ -209,13 +215,13 @@ class T1Cfg(LeggedRobotCfg):
         restitution = 0.                   # 恢复系数 (弹性)
         
         # =========================== 高度测量设置 ===========================
-        measure_heights = True             # 是否测量高度
-        # 高度测量点 - 机器人周围的采样点
-        measured_points_x = [-0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 
-                            0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]  # X轴测量点 (米)
-        measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 
-                            0., 0.1, 0.2, 0.3, 0.4, 0.5]                  # Y轴测量点 (米)
-        measure_horizontal_noise = 0.0     # 水平测量噪声
+        measure_heights = False            # 禁用高度测量 - 适配无激光雷达的真实机器人
+        # 高度测量点 - 机器人周围的采样点（已禁用）
+        # measured_points_x = [-0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 
+        #                     0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]  # X轴测量点 (米)
+        # measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 
+        #                     0., 0.1, 0.2, 0.3, 0.4, 0.5]                  # Y轴测量点 (米)
+        measure_horizontal_noise = 0.0     # 水平测量噪声（已禁用）
         
         # =========================== 课程学习设置 ===========================
         curriculum = True                  # 是否启用课程学习
@@ -260,9 +266,9 @@ class T1Cfg(LeggedRobotCfg):
         
         # =========================== 命令范围设置 ===========================
         # 训练时的命令采样范围
-        lin_vel_x = [-1.0, 1.0]            # X轴线速度范围 (m/s)
-        lin_vel_y = [-1.0, 1.0]            # Y轴线速度范围 (m/s) 
-        ang_vel_yaw = [-1, 1]              # 偏航角速度范围 (rad/s)
+        lin_vel_x = [-0.1, 0.5]            # X轴线速度范围 (m/s)
+        lin_vel_y = [-0.1, 0.1]            # Y轴线速度范围 (m/s) 
+        ang_vel_yaw = [0,0]              # 偏航角速度范围 (rad/s)
         body_height_cmd = [-0.05, 0.05]    # 身体高度命令范围 (m)
         impulse_height_commands = False    # 是否使用冲击高度命令
         
@@ -275,14 +281,14 @@ class T1Cfg(LeggedRobotCfg):
         # =========================== 课程学习命令范围 ===========================
         class curriculum_ranges:
             """课程学习初始命令范围 (逐渐扩展到max_ranges)"""
-            lin_vel_x = [0.5, 1]           # 初始X轴线速度范围
+            lin_vel_x = [0, 0.1]           # 初始X轴线速度范围
             lin_vel_y = [-0, 0]            # 初始Y轴线速度范围 (侧向运动较难)
             ang_vel_yaw = [-0.1, 0.1]      # 初始偏航角速度范围
             heading = [-0.1, 0.1]          # 初始朝向范围
 
         class max_ranges:
             """课程学习最终命令范围"""
-            lin_vel_x = [-1.6, 1.6]        # 最终X轴线速度范围
+            lin_vel_x = [-0.1, 0.5]        # 最终X轴线速度范围
             lin_vel_y = [0, 0]             # 最终Y轴线速度范围 (保持为0)
             ang_vel_yaw = [-0.8, 0.8]      # 最终偏航角速度范围  
             heading = [-3.14, 3.14]        # 最终朝向范围
@@ -397,7 +403,7 @@ class T1Cfg(LeggedRobotCfg):
     class init_state( LeggedRobotCfg.init_state ):
         """初始状态配置 - 自然站立姿态"""
         # =========================== 基座初始状态 ===========================
-        pos = [0.0, 0.0, 0.8]               # 初始位置 - 调整高度适配自然站立姿态
+        pos = [0.0, 0.0, 0.72]               # 初始位置 - 调整高度适配自然站立姿态
         rot = [0.0, 0.0, 0.0, 1.0]         # 初始旋转四元数
         lin_vel = [0.0, 0.0, 0.0]          # 初始线速度
         ang_vel = [0.0, 0.0, 0.0]          # 初始角速度
@@ -411,7 +417,7 @@ class T1Cfg(LeggedRobotCfg):
             
             # 手臂 - 自然张开姿态，提高平衡性
             'Left_Shoulder_Pitch': 0.25,      # 肩部稍微前倾
-            'Left_Shoulder_Roll': 0.0,       # 左臂向外张开
+            'Left_Shoulder_Roll': -1.4,       # 左臂向外张开
             'Left_Elbow_Pitch': 0.0,          # 肘关节保持伸直
             'Left_Elbow_Yaw': -0.5,           # 前臂稍微内旋
             'Right_Shoulder_Pitch': 0.25,     # 肩部稍微前倾
@@ -423,20 +429,13 @@ class T1Cfg(LeggedRobotCfg):
             'Waist': 0.0,
             
             # 腿部 - 微弯姿态，更稳定的站立
-            'Left_Hip_Pitch': -0.1,           # 髋部稍微后倾
+            'Left_Hip_Pitch': -1.21,           # 髋部稍微后倾
             'Left_Hip_Roll': 0.0,             # 髋部侧倾保持中性
             'Left_Hip_Yaw': 0.0,              # 髋部旋转保持中性
-            'Left_Knee_Pitch': 0.8,           # 膝盖微弯，增加稳定性
-            'Left_Ankle_Pitch': -0.6,         # 踝关节稍微背屈，平衡膝盖弯曲
+            'Left_Knee_Pitch': 1.21,           # 膝盖微弯，增加稳定性
+            'Left_Ankle_Pitch': 0.0,         # 踝关节稍微背屈，平衡膝盖弯曲
             'Left_Ankle_Roll': 0.0,           # 踝关节侧倾保持中性
             
-            'Right_Hip_Pitch': -0.1,          # 髋部稍微后倾
-            'Right_Hip_Roll': 0.0,            # 髋部侧倾保持中性
-            'Right_Hip_Yaw': 0.0,             # 髋部旋转保持中性
-            'Right_Knee_Pitch': 0.0,          # 膝盖微弯，增加稳定性
-            'Right_Ankle_Pitch': 0.0,        # 踝关节稍微背屈，平衡膝盖弯曲
-            'Right_Ankle_Roll': 0.0,          # 踝关节侧倾保持中性
-
             # 滑板系统 - 保持在合适位置
             'skateboard_joint_x': 0,
             'skateboard_joint_y': 0.0,        # 滑板高度调整
@@ -448,29 +447,18 @@ class T1Cfg(LeggedRobotCfg):
             'front_left_wheel_joint': 0,
             'front_right_wheel_joint': 0,
             'rear_left_wheel_joint': 0,
-            'rear_right_wheel_joint': 0
+            'rear_right_wheel_joint': 0,
+
+
+            'Right_Hip_Pitch': -0.1,          # 髋部稍微后倾
+            'Right_Hip_Roll': 0.0,            # 髋部侧倾保持中性
+            'Right_Hip_Yaw': 0.0,             # 髋部旋转保持中性
+            'Right_Knee_Pitch': 0.0,          # 膝盖微弯，增加稳定性
+            'Right_Ankle_Pitch': 0.0,        # 踝关节稍微背屈，平衡膝盖弯曲
+            'Right_Ankle_Roll': 0.0          # 踝关节侧倾保持中性
         }
         
-        # =========================== 滑行默认姿态 ===========================
-        # T1在滑板上滑行时的关节角度 (基于自然站立姿态调整)
-        glide_default_pos = [
-            # Head (2) - 保持直视前方
-            0.0, 0.0,
-            # Left arm (4) - 保持自然张开姿态，有助于平衡
-            0.25, 0.0, 0.0, -0.5,
-            # Right arm (4) - 保持自然张开姿态，有助于平衡
-            0.25, 0.0, 0.0, 0.5,
-            # Waist (1) - 直立
-            0.0,
-            # Left leg (6) - 滑行姿态：在站立基础上增加蹲姿幅度
-            -0.2, 0.0, 0.0, 0.4, -0.2, 0.0,
-            # Right leg (6) - 滑行姿态：在站立基础上增加蹲姿幅度
-            -0.2, 0.0, 0.0, 0.4, -0.2, 0.0,
-            # Skateboard system joints (9) - 调整滑板到合适高度
-            0, 0.05, 0, # skateboard_joint_x/y/z
-            0, 0,       # front/rear_truck_roll_joint
-            0, 0, 0, 0  # wheel joints
-        ]
+        # =========================== 滑行默认姿态 ==========================
 
     class control(LeggedRobotCfg.control):
         """控制系统配置 - T1机器人的关节控制参数"""
@@ -540,23 +528,21 @@ class T1Cfg(LeggedRobotCfg):
         """奖励函数配置 - T1滑板运动的奖励设计"""
         
         class scales:
-            """各奖励项的权重系数"""
-            # =============== GROUP1: GLIDE REWARD (滑行奖励) ===============
-            glide_feet_on_board = 0.3      # 脚在滑板上的奖励
-            glide_contact_num = 0.3        # 滑行接触数量奖励
-            glide_feet_dis = 1.8           # 脚与滑板距离奖励 (越近越好)
-            glide_joint_pos = 1.2          # 滑行时关节姿态奖励
-            glide_hip_pos = 1.2            # 滑行时髋部姿态奖励
-
-            # =============== GROUP2: PUSH REWARD (蹬地奖励) ===============
+            """各奖励项的权重系数 - T1滑板机器人专用 (仅Push模式)"""
+            
+            # =============== GROUP1: PUSH模式奖励 (T1主要模式) ===============
             push_tracking_lin_vel = 1.6    # 蹬地时线速度跟踪奖励
             push_tracking_ang_vel = 0.8    # 蹬地时角速度跟踪奖励
+            push_joint_pos = 1.2           # 蹬地时关节姿态奖励
             push_hip_pos = 0.6             # 蹬地时髋部姿态奖励
             push_orientation = -2          # 蹬地时姿态稳定性惩罚
 
-            # =============== GROUP3: REGULARIZATION (正则化惩罚) ===============
+            # =============== GROUP2: 滑板控制奖励 ===============
+            skateboard_pos = 0.5           # 滑板姿态控制
             reg_wheel_contact_number = 0.8 # 轮子接触地面奖励
-            reg_board_body_z = 1           # 滑板高度维持奖励
+            wheel_speed = 0.3              # 轮速奖励
+
+            # =============== GROUP3: 正则化惩罚 ===============
             reg_dof_acc = -2.5e-7          # 关节加速度惩罚 (平滑运动)
             reg_collision = -1.            # 碰撞惩罚
             reg_action_rate = -0.22        # 动作变化率惩罚 (减少抖动)

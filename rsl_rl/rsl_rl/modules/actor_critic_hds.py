@@ -34,6 +34,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Beta
 from rsl_rl.modules.vae import VAE
+import logging
+import os
+
+# 设置日志
+logger = logging.getLogger(__name__)
+LOG_LEVELS = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL
+}
+log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
+log_level = LOG_LEVELS.get(log_level_str, logging.INFO)
+logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 class ActorCriticHDS(nn.Module):
     is_recurrent = False
@@ -53,7 +68,7 @@ class ActorCriticHDS(nn.Module):
                         cfg = None,
                         **kwargs):
         if kwargs:
-            print("ActorCritic.__init__ got unexpected arguments, which will be ignored: " + str([key for key in kwargs.keys()]))
+            logger.warning("ActorCritic.__init__ got unexpected arguments, which will be ignored: " + str([key for key in kwargs.keys()]))
         super(ActorCriticHDS, self).__init__()
         self.cfg = cfg
         self.num_proprio = num_proprio
@@ -78,7 +93,7 @@ class ActorCriticHDS(nn.Module):
             else:
                 actor_layers.append(nn.Linear(actor_hidden_dims[l], actor_hidden_dims[l + 1]))
                 actor_layers.append(nn.ELU())
-        print(actor_layers)
+        logger.debug(actor_layers)
         self.actor = nn.Sequential(*actor_layers)
 
         # Value function
@@ -152,11 +167,11 @@ class ActorCriticHDS(nn.Module):
             self.TsDyn_modules.append(VAE(TsDyn_input_dim, TsDyn_output_dim, tsdyn_hidden_dims, tsdyn_latent_dims, self.history_len, kl_w=0.9, prior_mu=0, feet_contact_dim=self.num_contact))
 
 
-        print(f"Actor MLP: {self.actor}")
-        print(f"Critic MLP: {self.critic}")
-        print(f"Glide Critic MLP: {self.glide_critic}")
-        print(f"Push Critic MLP: {self.push_critic}")
-        print(f"Reg Critic MLP: {self.reg_critic}")
+        logger.debug(f"Actor MLP: {self.actor}")
+        logger.debug(f"Critic MLP: {self.critic}")
+        logger.debug(f"Glide Critic MLP: {self.glide_critic}")
+        logger.debug(f"Push Critic MLP: {self.push_critic}")
+        logger.debug(f"Reg Critic MLP: {self.reg_critic}")
 
         # Action noise
         self.distribution = None
