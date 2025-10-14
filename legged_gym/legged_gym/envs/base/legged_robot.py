@@ -1634,20 +1634,20 @@ class LeggedRobot(BaseTask):
         lin_vel_error = torch.sum(torch.square(lin_vel_error), dim=1)
         return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma)
 
-    def _reward_tracking_lin_vel(self):
-        # T1: 统一线速度跟踪奖励 (移除滑行/蹬地切换机制)
-        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
-        return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma)
+    # def _reward_tracking_lin_vel(self):
+    #     # T1: 统一线速度跟踪奖励 (移除滑行/蹬地切换机制)
+    #     lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+    #     return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma)
         
     # def _reward_tracking_world_lin_vel(self):
     #     cur_vel = self.base_lin_vel[:, 0] * torch.cos(self.commands[:, 3]-self.yaw)
     #     lin_vel_error = torch.square(self.commands[:, 0] - cur_vel)
     #     return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma)
 
-    def _reward_tracking_ang_vel(self):
-        # T1: 统一角速度跟踪奖励 (移除滑行/蹬地切换机制)  
-        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
-        return torch.exp(-ang_vel_error / self.cfg.rewards.tracking_sigma_yaw)
+    # def _reward_tracking_ang_vel(self):
+    #     # T1: 统一角速度跟踪奖励 (移除滑行/蹬地切换机制)  
+    #     ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
+    #     return torch.exp(-ang_vel_error / self.cfg.rewards.tracking_sigma_yaw)
         
     def _reward_tracking_yaw(self):
         rew = torch.exp(-torch.abs(self.commands[:, 3] - self.yaw))
@@ -1974,3 +1974,32 @@ class LeggedRobot(BaseTask):
         hip_error = torch.sum(torch.square(self.dof_pos[:, self.hip_indices] 
                         - self.glide_default_dof_pos[None, self.hip_indices]), dim=1)
         return torch.exp(-hip_error) * contact_coefs[:,0]
+
+    def _reward_right_foot_contact(self):
+        """
+        T1滑板: 奖励右腿接触地面
+        检测右脚与地面的接触力，鼓励右脚保持与地面接触
+        """
+        # 获取脚部接触力 (Z轴分量，垂直向上为正)
+        feet_contact_forces = self.contact_forces[:, self.feet_indices, 2]  # shape: [num_envs, num_feet]
+        
+        # T1机器人假设有2只脚: feet_indices[0]=左脚, feet_indices[1]=右脚
+        if self.feet_indices.shape[0] >= 2:
+            right_foot_force = feet_contact_forces[:, 1]  # 右脚索引为1
+            
+            # 检测接触: 接触力大于阈值认为接触地面
+            contact_threshold = 5.0  # 接触力阈值 (N)
+            right_foot_contact = torch.abs(right_foot_force) > contact_threshold
+            
+            # 奖励接触，可以选择以下两种方式之一:
+            # 方式1: 二值奖励 (接触=1, 不接触=0)
+            reward = right_foot_contact.float()
+            
+            # 方式2: 连续奖励 (根据接触力大小给出奖励)
+            # contact_force_magnitude = torch.abs(right_foot_force)
+            # reward = torch.tanh(contact_force_magnitude / 20.0)  # 归一化到[0,1]
+            
+            return reward
+        else:
+            # 如果脚部数量不足，返回零奖励
+            return torch.zeros(self.num_envs, device=self.device, dtype=torch.float)

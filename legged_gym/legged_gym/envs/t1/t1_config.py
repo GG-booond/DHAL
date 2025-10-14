@@ -403,7 +403,7 @@ class T1Cfg(LeggedRobotCfg):
     class init_state( LeggedRobotCfg.init_state ):
         """初始状态配置 - 自然站立姿态"""
         # =========================== 基座初始状态 ===========================
-        pos = [0.0, 0.0, 0.72]               # 初始位置 - 调整高度适配自然站立姿态
+        pos = [0.0, 0.0, 0.68]               # 初始位置 - 调整高度适配自然站立姿态
         rot = [0.0, 0.0, 0.0, 1.0]         # 初始旋转四元数
         lin_vel = [0.0, 0.0, 0.0]          # 初始线速度
         ang_vel = [0.0, 0.0, 0.0]          # 初始角速度
@@ -541,16 +541,18 @@ class T1Cfg(LeggedRobotCfg):
             skateboard_pos = 0.5           # 滑板姿态控制
             reg_wheel_contact_number = 0.8 # 轮子接触地面奖励
             wheel_speed = 0.3              # 轮速奖励
-
+            right_foot_contact = 100.0       # 右脚接触地面奖励
             # =============== GROUP3: 正则化惩罚 ===============
             reg_dof_acc = -2.5e-7          # 关节加速度惩罚 (平滑运动)
             reg_collision = -1.            # 碰撞惩罚
-            reg_action_rate = -0.22        # 动作变化率惩罚 (减少抖动)
+            reg_action_rate = -1.0e-6        # 动作变化率惩罚 (减少抖动)
             reg_delta_torques = -1.0e-7    # 力矩变化惩罚
             reg_torques = -0.00001         # 力矩大小惩罚 (能耗)
             reg_lin_vel_z = -0.1           # Z轴线速度惩罚 (避免跳跃)
             reg_ang_vel_xy = -0.01         # XY轴角速度惩罚 (姿态稳定)
             reg_orientation = -25          # 姿态角度惩罚 (避免倾倒)
+            # =============== GROUP4: 模式无关 ===============
+
 
         # =========================== 奖励系统参数 ===========================
         cycle_time = 4                     # 运动周期时间 (秒) - 滑行/蹬地切换周期
@@ -646,9 +648,9 @@ class T1CfgPPO(LeggedRobotCfgPPO):
         lam = 0.9                          # GAE lambda参数
         desired_kl = 0.01                  # 期望KL散度
         max_grad_norm = 1.                 # 最大梯度范数
-        glide_advantage_w = 0.35           # 滑行优势权重
-        push_advantage_w = 0.4             # 推进优势权重
-        sim2real_advantage_w = 0.25        # 仿真到现实优势权重
+        glide_advantage_w = 0           # 滑行优势权重
+        push_advantage_w = 1.0             # 推进优势权重
+        sim2real_advantage_w = 0           # 仿真到现实优势权重
     
     class depth_encoder(LeggedRobotCfgPPO.depth_encoder):
         """深度编码器配置"""

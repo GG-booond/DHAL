@@ -96,7 +96,7 @@ class ActorCriticHDS(nn.Module):
         logger.debug(actor_layers)
         self.actor = nn.Sequential(*actor_layers)
 
-        # Value function
+        # Value function - 只保留push critic作为主要的critic
         critic_layers = []
         critic_layers.append(nn.Linear(mlp_input_dim_c, critic_hidden_dims[0]))
         critic_layers.append(nn.ELU())
@@ -107,42 +107,6 @@ class ActorCriticHDS(nn.Module):
                 critic_layers.append(nn.Linear(critic_hidden_dims[l], critic_hidden_dims[l + 1]))
                 critic_layers.append(nn.ELU())
         self.critic = nn.Sequential(*critic_layers)
-
-        # glide critic
-        glide_critic_layers = []
-        glide_critic_layers.append(nn.Linear(mlp_input_dim_c, critic_hidden_dims[0]))
-        glide_critic_layers.append(nn.ELU())
-        for l in range(len(critic_hidden_dims)):
-            if l == len(critic_hidden_dims) - 1:
-                glide_critic_layers.append(nn.Linear(critic_hidden_dims[l], 1))
-            else:
-                glide_critic_layers.append(nn.Linear(critic_hidden_dims[l], critic_hidden_dims[l + 1]))
-                glide_critic_layers.append(nn.ELU())
-        self.glide_critic = nn.Sequential(*glide_critic_layers)
-
-        # push critic
-        push_critic_layers = []
-        push_critic_layers.append(nn.Linear(mlp_input_dim_c, critic_hidden_dims[0]))
-        push_critic_layers.append(nn.ELU())
-        for l in range(len(critic_hidden_dims)):
-            if l == len(critic_hidden_dims) - 1:
-                push_critic_layers.append(nn.Linear(critic_hidden_dims[l], 1))
-            else:
-                push_critic_layers.append(nn.Linear(critic_hidden_dims[l], critic_hidden_dims[l + 1]))
-                push_critic_layers.append(nn.ELU())
-        self.push_critic = nn.Sequential(*push_critic_layers)
-
-        # regulation critic
-        reg_critic_layers = []
-        reg_critic_layers.append(nn.Linear(mlp_input_dim_c, critic_hidden_dims[0]))
-        reg_critic_layers.append(nn.ELU())
-        for l in range(len(critic_hidden_dims)):
-            if l == len(critic_hidden_dims) - 1:
-                reg_critic_layers.append(nn.Linear(critic_hidden_dims[l], 1))
-            else:
-                reg_critic_layers.append(nn.Linear(critic_hidden_dims[l], critic_hidden_dims[l + 1]))
-                reg_critic_layers.append(nn.ELU())
-        self.reg_critic = nn.Sequential(*reg_critic_layers)
 
         # Discrete Hybrid automata
         DHA_layers = []
@@ -169,9 +133,6 @@ class ActorCriticHDS(nn.Module):
 
         logger.debug(f"Actor MLP: {self.actor}")
         logger.debug(f"Critic MLP: {self.critic}")
-        logger.debug(f"Glide Critic MLP: {self.glide_critic}")
-        logger.debug(f"Push Critic MLP: {self.push_critic}")
-        logger.debug(f"Reg Critic MLP: {self.reg_critic}")
 
         # Action noise
         self.distribution = None
@@ -286,10 +247,8 @@ class ActorCriticHDS(nn.Module):
 
     def evaluate(self, critic_observations, **kwargs):
         value = self.critic(critic_observations)
-        glide_value = self.glide_critic(critic_observations)
-        push_value = self.push_critic(critic_observations)
-        reg_value = self.reg_critic(critic_observations)
-        return value, glide_value, push_value, reg_value
+        # 只返回一个critic的值，其他值设为相同值以保持接口兼容性
+        return value, value, value, value
 
 
 class SoftplusWithOffset(nn.Module):

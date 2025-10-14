@@ -87,6 +87,7 @@ def play(args):
 
     for i in range(10*int(env.max_episode_length)):
         env.commands[:, 0] = 1
+     
         env.commands[::2, 2] = 0.6
         env.commands[1::2, 2] = -0.6
         policy_output = policy(obs.detach())
